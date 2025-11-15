@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mobile Annotation Tool</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            touch-action: none;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background: #1a1a1a;
+            color: white;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            user-select: none;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #2d2d2d;
+        }
+        
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform-origin: 0 0;
+            background: #2d2d2d;
+        }
+        
+        #toolsPanel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(51, 51, 51, 0.9);
+            padding: 10px;
+            display: flex;
+            justify-content: space-around;
+            z-index: 1000;
+            border-top: 1px solid #555;
+        }
+        
+        .tool-btn {
+            background: #555;
+            color: white;
+            border: none;
+            padding: 12px 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            cursor: pointer;
+            flex: 1;
+            margin: 0 5px;
+            min-height: 44px;
+        }
+        
+        .tool-btn:hover, .tool-btn.active {
+            background: #ff4444;
+        }
+        
+        .zoom-controls {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(51, 51, 51, 0.9);
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .zoom-btn {
+            background: #555;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            margin: 2px 0;
+            cursor: pointer;
+            border-radius: 3px;
+            width: 40px;
+            height: 40px;
+            font-size: 18px;
+        }
+        
+        .zoom-btn:hover {
+            background: #666;
+        }
+        
+        #zoomLevel {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        .annotation-text {
+            position: absolute;
+            color: #ff4444;
+            padding: 4px 6px;
+            font-size: 16px;
+            cursor: move;
+            z-index: 999;
+            max-width: 200px;
+            word-wrap: break-word;
+            background: transparent;
+            border: none;
+            touch-action: none;
+        }
+        
+        #textInputOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+        
+        #textInputContainer {
+            background: #333;
+            padding: 20px;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 400px;
+        }
+        
+        #textInput {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            background: #444;
+            color: white;
+            border: 1px solid #666;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        
+        #textInputButtons {
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .text-input-btn {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        
+        #confirmText {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        #cancelText {
+            background: #f44336;
+            color: white;
+        }
+        
+        .arrow-start-point {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: #ff4444;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 998;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoomOut()">-</button>
+        <span id="zoomLevel">100%</span>
+        <button class="zoom-btn" onclick="zoomIn()">+</button>
+    </div>
+
+    <div id="container">
+        <canvas id="canvas" width="2000" height="1500"></canvas>
+        <div id="annotationsContainer"></div>
+        <div id="arrowStartPoint" class="arrow-start-point"></div>
+    </div>
+    
+    <div id="toolsPanel">
+        <button class="tool-btn" id="arrowTool">Стрелка</button>
+        <button class="tool-btn" id="textTool">Надпись</button>
+        <button class="tool-btn" id="panTool" class="active">Перемещение</button>
+        <button class="tool-btn" id="clearTool">Очистить всё</button>
+    </div>
+    
+    <div id="textInputOverlay">
+        <div id="textInputContainer">
+            <input type="text" id="textInput" placeholder="Введите текст...">
+            <div id="textInputButtons">
+                <button class="text-input-btn" id="confirmText">Готово</button>
+                <button class="text-input-btn" id="cancelText">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const container = document.getElementById('container');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const textInputOverlay = document.getElementById('textInputOverlay');
+        const textInput = document.getElementById('textInput');
+        const annotationsContainer = document.getElementById('annotationsContainer');
+        const zoomLevel = document.getElementById('zoomLevel');
+        const arrowStartPoint = document.getElementById('arrowStartPoint');
+        
+        // Элементы инструментов
+        const arrowTool = document.getElementById('arrowTool');
+        const textTool = document.getElementById('textTool');
+        const panTool = document.getElementById('panTool');
+        const clearTool = document.getElementById('clearTool');
+        const confirmText = document.getElementById('confirmText');
+        const cancelText = document.getElementById('cancelText');
+
+        let scale = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        
+        let currentTool = 'pan'; // 'pan', 'arrow', 'text'
+        let arrowStartPos = null;
+        let currentArrow = null;
+        let arrows = [];
+        
+        let texts = [];
+        let draggedText = null;
+        let dragTextOffset = { x: 0, y: 0 };
+        let textPosition = { x: 0, y: 0 };
+
+        // Инициализация инструментов
+        arrowTool.addEventListener('click', () => setTool('arrow'));
+        textTool.addEventListener('click', () => setTool('text'));
+        panTool.addEventListener('click', () => setTool('pan'));
+        clearTool.addEventListener('click', clearAll);
+        confirmText.addEventListener('click', confirmTextInput);
+        cancelText.addEventListener('click', cancelTextInput);
+
+        function setTool(tool) {
+            currentTool = tool;
+            
+            // Обновляем активную кнопку
+            arrowTool.classList.remove('active');
+            textTool.classList.remove('active');
+            panTool.classList.remove('active');
+            
+            if (tool === 'arrow') arrowTool.classList.add('active');
+            else if (tool === 'text') textTool.classList.add('active');
+            else if (tool === 'pan') panTool.classList.add('active');
+            
+            // Сбрасываем состояние стрелки
+            arrowStartPos = null;
+            arrowStartPoint.style.display = 'none';
+        }
+
+        // Масштабирование
+        function zoomIn() {
+            scale = Math.min(scale * 1.2, 3);
+            updateTransform();
+        }
+
+        function zoomOut() {
+            scale = Math.max(scale / 1.2, 0.5);
+            updateTransform();
+        }
+
+        function updateTransform() {
+            canvas.style.transform = `scale(${scale}) translate(${offsetX}px, ${offsetY}px)`;
+            zoomLevel.textContent = Math.round(scale * 100) + '%';
+            
+            // Обновляем позиции текстов
+            texts.forEach(text => {
+                const textElement = document.getElementById(text.id);
+                if (textElement) {
+                    textElement.style.left = (text.x * scale + offsetX) + 'px';
+                    textElement.style.top = (text.y * scale + offsetY) + 'px';
+                }
+            });
+            
+            redrawCanvas();
+        }
+
+        // Обработка касаний
+        container.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            if (e.touches.length !== 1) return;
+            
+            const touch = e.touches[0];
+            const rect = container.getBoundingClientRect();
+            const x = (touch.clientX - rect.left - offsetX) / scale;
+            const y = (touch.clientY - rect.top - offsetY) / scale;
+            
+            if (currentTool === 'pan') {
+                isDragging = true;
+                dragStart = { x: touch.clientX - offsetX, y: touch.clientY - offsetY };
+                container.style.cursor = 'grabbing';
+            } 
+            else if (currentTool === 'arrow') {
+                if (!arrowStartPos) {
+                    // Первое касание - начало стрелки
+                    arrowStartPos = { x, y };
+                    arrowStartPoint.style.left = (x * scale + offsetX) + 'px';
+                    arrowStartPoint.style.top = (y * scale + offsetY) + 'px';
+                    arrowStartPoint.style.display = 'block';
+                } else {
+                    // Второе касание - конец стрелки
+                    const end = { x, y };
+                    
+                    // Проверяем, указывает ли стрелка на текст
+                    const targetText = findTextAtPosition(end);
+                    let adjustedEnd = end;
+                    
+                    if (targetText) {
+                        // Плавно подводим стрелку к тексту
+                        adjustedEnd = adjustArrowToText(arrowStartPos, targetText);
+                    }
+                    
+                    arrows.push({
+                        start: { ...arrowStartPos },
+                        end: adjustedEnd,
+                        color: '#ff4444',
+                        targetText: targetText
+                    });
+                    
+                    // Сбрасываем состояние стрелки
+                    arrowStartPos = null;
+                    arrowStartPoint.style.display = 'none';
+                    redrawCanvas();
+                }
+            }
+            else if (currentTool === 'text') {
+                textPosition = { x, y };
+                textInput.value = '';
+                textInputOverlay.style.display = 'flex';
+                textInput.focus();
+            }
+            
+            // Проверяем, не начали ли мы перетаскивать текст
+            if (!draggedText) {
+                const targetText = findTextAtPosition({x, y});
+                if (targetText) {
+                    draggedText = targetText;
+                    const textElement = document.getElementById(targetText.id);
+                    dragTextOffset = {
+                        x: touch.clientX - parseFloat(textElement.style.left),
+                        y: touch.clientY - parseFloat(textElement.style.top)
+                    };
+                }
+            }
+        });
+
+        container.addEventListener('touchmove', function(e) {
+            e.preventDefault();
+            if (e.touches.length !== 1) return;
+            
+            const touch = e.touches[0];
+            
+            if (isDragging) {
+                offsetX = touch.clientX - dragStart.x;
+                offsetY = touch.clientY - dragStart.y;
+                updateTransform();
+            }
+            
+            // Перетаскивание текста
+            if (draggedText) {
+                const textElement = document.getElementById(draggedText.id);
+                const newX = touch.clientX - dragTextOffset.x;
+                const newY = touch.clientY - dragTextOffset.y;
+                
+                textElement.style.left = newX + 'px';
+                textElement.style.top = newY + 'px';
+                
+                // Обновляем позицию в данных
+                const textData = texts.find(t => t.id === draggedText.id);
+                if (textData) {
+                    textData.x = (newX - offsetX) / scale;
+                    textData.y = (newY - offsetY) / scale;
+                }
+                
+                // Обновляем стрелки, указывающие на этот текст
+                updateArrowsToText(draggedText.id);
+                redrawCanvas();
+            }
+        });
+
+        container.addEventListener('touchend', function() {
+            isDragging = false;
+            draggedText = null;
+            container.style.cursor = 'default';
+        });
+
+        // Обработка долгого нажатия (аналог правой кнопки мыши)
+        let longPressTimer;
+        let longPressTarget = null;
+        
+        container.addEventListener('touchstart', function(e) {
+            if (e.touches.length !== 1) return;
+            
+            longPressTarget = e.touches[0];
+            longPressTimer = setTimeout(() => {
+                // Долгое нажатие - переключаемся в режим панорамирования
+                setTool('pan');
+                isDragging = true;
+                dragStart = { 
+                    x: longPressTarget.clientX - offsetX, 
+                    y: longPressTarget.clientY - offsetY 
+                };
+                container.style.cursor = 'grabbing';
+            }, 500); // 500ms для долгого нажатия
+        });
+        
+        container.addEventListener('touchend', function(e) {
+            clearTimeout(longPressTimer);
+            longPressTarget = null;
+        });
+        
+        container.addEventListener('touchmove', function(e) {
+            if (longPressTarget && e.touches.length === 1) {
+                // Если палец сдвинулся, отменяем долгое нажатие
+                const touch = e.touches[0];
+                const dx = touch.clientX - longPressTarget.clientX;
+                const dy = touch.clientY - longPressTarget.clientY;
+                const distance = Math.sqrt(dx*dx + dy*dy);
+                
+                if (distance > 10) { // Порог в 10px
+                    clearTimeout(longPressTimer);
+                }
+            }
+        });
+
+        function clearAll() {
+            arrows = [];
+            texts = [];
+            annotationsContainer.innerHTML = '';
+            redrawCanvas();
+        }
+
+        function confirmTextInput() {
+            const text = textInput.value.trim();
+            if (text) {
+                createTextAnnotation(textPosition.x, textPosition.y, text);
+            }
+            textInputOverlay.style.display = 'none';
+            setTool('pan');
+        }
+
+        function cancelTextInput() {
+            textInputOverlay.style.display = 'none';
+            setTool('pan');
+        }
+
+        function createTextAnnotation(x, y, text) {
+            const textId = 'text-' + Date.now();
+            const textElement = document.createElement('div');
+            textElement.className = 'annotation-text';
+            textElement.id = textId;
+            textElement.textContent = text;
+            textElement.style.left = (x * scale + offsetX) + 'px';
+            textElement.style.top = (y * scale + offsetY) + 'px';
+            
+            texts.push({
+                id: textId,
+                x: x,
+                y: y,
+                text: text,
+                element: textElement
+            });
+            
+            annotationsContainer.appendChild(textElement);
+            redrawCanvas();
+        }
+
+        function findTextAtPosition(pos) {
+            for (const text of texts) {
+                const textElement = document.getElementById(text.id);
+                const rect = textElement.getBoundingClientRect();
+                const textX = (parseFloat(textElement.style.left) - offsetX) / scale;
+                const textY = (parseFloat(textElement.style.top) - offsetY) / scale;
+                const textWidth = rect.width / scale;
+                const textHeight = rect.height / scale;
+                
+                if (pos.x >= textX && pos.x <= textX + textWidth &&
+                    pos.y >= textY && pos.y <= textY + textHeight) {
+                    return text;
+                }
+            }
+            return null;
+        }
+
+        function adjustArrowToText(start, text) {
+            const textElement = document.getElementById(text.id);
+            const rect = textElement.getBoundingClientRect();
+            const textX = (parseFloat(textElement.style.left) - offsetX) / scale;
+            const textY = (parseFloat(textElement.style.top) - offsetY) / scale;
+            const textWidth = rect.width / scale;
+            const textHeight = rect.height / scale;
+            
+            // Находим ближайшую точку на границе текста
+            const centerX = textX + textWidth / 2;
+            const centerY = textY + textHeight / 2;
+            
+            const dx = centerX - start.x;
+            const dy = centerY - start.y;
+            const angle = Math.atan2(dy, dx);
+            
+            // Вычисляем точку пересечения с прямоугольником текста
+            const halfWidth = textWidth / 2;
+            const halfHeight = textHeight / 2;
+            
+            const ratio = Math.abs(dy / dx);
+            let edgeX, edgeY;
+            
+            if (ratio > halfHeight / halfWidth) {
+                // Пересекаем верхнюю или нижнюю грань
+                edgeY = dy > 0 ? textY : textY + textHeight;
+                edgeX = start.x + (edgeY - start.y) / Math.tan(angle);
+            } else {
+                // Пересекаем левую или правую грань
+                edgeX = dx > 0 ? textX : textX + textWidth;
+                edgeY = start.y + (edgeX - start.x) * Math.tan(angle);
+            }
+            
+            return {
+                x: edgeX,
+                y: edgeY
+            };
+        }
+
+        function updateArrowsToText(textId) {
+            arrows.forEach(arrow => {
+                if (arrow.targetText && arrow.targetText.id === textId) {
+                    arrow.end = adjustArrowToText(arrow.start, arrow.targetText);
+                }
+            });
+        }
+
+        function drawArrow(arrow) {
+            const start = arrow.start;
+            const end = arrow.end;
+            const headlen = 10;
+            
+            // Простая плавная стрелка
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            // Контрольные точки для плавности
+            const cpX = start.x + dx * 0.5;
+            const cpY = start.y + dy * 0.5;
+            
+            ctx.strokeStyle = arrow.color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.quadraticCurveTo(cpX, cpY, end.x, end.y);
+            ctx.stroke();
+            
+            // Простой наконечник стрелки
+            const angle = Math.atan2(dy, dx);
+            ctx.beginPath();
+            ctx.moveTo(end.x, end.y);
+       
